@@ -19,12 +19,12 @@ jobs:
 
     steps:
       - name: Checkout devsecops (config source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           path: security-source
 
       - name: Checkout ${{ matrix.repo }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           repository: ${{ matrix.repo }}
           token: ${{ secrets.SYNC_PAT }}
@@ -39,7 +39,7 @@ jobs:
           cp security-source/configs/.pre-commit-config.yaml target/.pre-commit-config.yaml
 
       - name: Create or update sync PR
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7.0.11
         with:
           token: ${{ secrets.SYNC_PAT }}
           path: target
