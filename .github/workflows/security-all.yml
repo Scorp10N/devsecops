@@ -3,13 +3,188 @@ name: Security (reusable)
 on:
   workflow_call:
     inputs:
+      engine_dockerfile:
+        type: string
+        default: "./engine"
+      web_dockerfile:
+        type: string
+        default: "./web"
+      web_build_args:
+        type: string
+        default: "VITE_ENGINE_URL=http://localhost:8080"
+      go_version:
+        type: string
+        default: "1.22"
+      node_version:
+        type: string
+        default: "20"
       has_go:
         type: boolean
         default: true
+      has_node:
+        type: boolean
+        default: true
+      has_containers:
+        type: boolean
+        default: true
+      codeql_languages:
+        description: "JSON array string e.g. '[\"python\",\"go\"]'"
+        type: string
+        default: '["python","go","javascript-typescript"]'
 
 jobs:
-  debug:
-    name: Debug check
+  # ── 1. Secret scanning ────────────────────────────────────────────────────
+  secrets:
+    name: Secret scanning (TruffleHog)
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Reusable workflow loaded OK. has_go=${{ inputs.has_go }}"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Download TruffleHog config
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/Scorp10N/devsecops/main/configs/trufflehog.toml \
+            -o trufflehog.toml
+
+      - uses: trufflesecurity/trufflehog@3fc0c2aa6648d54242e4af6fbfde0701796e4fb0  # main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified --config=trufflehog.toml
+
+  # ── 2. Dependency vulnerabilities ────────────────────────────────────────
+  deps:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4
+        with:
+          version: "latest"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5.6.0
+        if: ${{ inputs.has_go }}
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        if: ${{ inputs.has_node }}
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Python — pip-audit
+        run: |
+          cd engine
+          uv sync --extra dev
+          uv run pip-audit
+
+      - name: Go — govulncheck
+        if: ${{ inputs.has_go }}
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd cli && govulncheck ./...
+
+      - name: npm — audit
+        if: ${{ inputs.has_node }}
+        run: cd web && npm install && npm audit --audit-level=critical
+
+  # ── 3. Container scanning (Trivy) ─────────────────────────────────────────
+  # Note: job-level if cannot use inputs context — steps are individually gated.
+  containers:
+    name: Container scanning (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        if: ${{ inputs.has_containers }}
+
+      - name: Download Trivy ignore list
+        if: ${{ inputs.has_containers }}
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/Scorp10N/devsecops/main/configs/trivy-ignore.txt \
+            -o .trivyignore
+
+      - name: Build engine image
+        if: ${{ inputs.has_containers }}
+        run: docker build ${{ inputs.engine_dockerfile }} -t scan-engine:ci
+
+      - name: Scan engine image
+        if: ${{ inputs.has_containers }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
+        with:
+          image-ref: scan-engine:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+
+      - name: Build web image
+        if: ${{ inputs.has_containers }}
+        run: |
+          BUILD_ARGS=""
+          for arg in ${{ inputs.web_build_args }}; do
+            BUILD_ARGS="$BUILD_ARGS --build-arg $arg"
+          done
+          docker build $BUILD_ARGS ${{ inputs.web_dockerfile }} -t scan-web:ci
+
+      - name: Scan web image
+        if: ${{ inputs.has_containers }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
+        with:
+          image-ref: scan-web:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+
+  # ── 4. Static analysis — CodeQL ──────────────────────────────────────────
+  sast:
+    name: Static analysis (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.codeql_languages) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/autobuild@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+      - uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ── 5. Custom SAST — Semgrep (main push only, non-blocking on PRs) ────────
+  semgrep:
+    name: Custom SAST (Semgrep)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Download Semgrep rules
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/Scorp10N/devsecops/main/configs/semgrep.yml \
+            -o .semgrep-platform-rules.yml
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        with:
+          config: .semgrep-platform-rules.yml
+        env:
+          SEMGREP_APP_TOKEN: ""
