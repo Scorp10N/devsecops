@@ -6,21 +6,11 @@ on:
       has_go:
         type: boolean
         default: true
-      has_node:
-        type: boolean
-        default: true
-      has_containers:
-        type: boolean
-        default: true
 
 jobs:
   sast-python:
     name: Static analysis (CodeQL) / python
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
