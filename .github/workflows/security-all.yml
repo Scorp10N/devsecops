@@ -3,41 +3,22 @@ name: Security (reusable)
 on:
   workflow_call:
     inputs:
-      engine_dockerfile:
-        type: string
-        default: "./engine"
-      web_dockerfile:
-        type: string
-        default: "./web"
-      web_build_args:
-        type: string
-        default: "VITE_ENGINE_URL=http://localhost:8080"
-      go_version:
-        type: string
-        default: "1.22"
-      node_version:
-        type: string
-        default: "20"
-      has_go:
-        type: boolean
-        default: true
-      has_node:
-        type: boolean
-        default: true
-      has_containers:
-        type: boolean
-        default: true
       codeql_languages:
         description: "JSON array string e.g. '[\"python\",\"go\"]'"
         type: string
         default: '["python","go","javascript-typescript"]'
 
 jobs:
-  probe:
-    name: Probe — inputs accepted
+  probe-sast:
+    name: Probe — sast matrix
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.codeql_languages) }}
     steps:
-      - run: |
-          echo "engine_dockerfile=${{ inputs.engine_dockerfile }}"
-          echo "has_go=${{ inputs.has_go }}"
-          echo "codeql_languages=${{ inputs.codeql_languages }}"
+      - run: echo "language=${{ matrix.language }}"
