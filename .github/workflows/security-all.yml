@@ -92,24 +92,28 @@ jobs:
         if: ${{ inputs.has_node }}
         run: cd web && npm install && npm audit --audit-level=critical
 
-  # ── 3. Container scanning (Trivy) ────────────────────────────────────────
+  # ── 3. Container scanning (Trivy) ─────────────────────────────────────────
+  # Note: job-level if cannot use inputs context; steps are individually gated.
   containers:
     name: Container scanning (Trivy)
     runs-on: ubuntu-latest
-    if: ${{ inputs.has_containers }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        if: ${{ inputs.has_containers }}
 
       - name: Download Trivy ignore list
+        if: ${{ inputs.has_containers }}
         run: |
           curl -fsSL \
             https://raw.githubusercontent.com/Scorp10N/devsecops/main/configs/trivy-ignore.txt \
             -o .trivyignore
 
       - name: Build engine image
+        if: ${{ inputs.has_containers }}
         run: docker build ${{ inputs.engine_dockerfile }} -t scan-engine:ci
 
       - name: Scan engine image
+        if: ${{ inputs.has_containers }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
         with:
           image-ref: scan-engine:ci
@@ -120,6 +124,7 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Build web image
+        if: ${{ inputs.has_containers }}
         run: |
           BUILD_ARGS=""
           for arg in ${{ inputs.web_build_args }}; do
@@ -128,6 +133,7 @@ jobs:
           docker build $BUILD_ARGS ${{ inputs.web_dockerfile }} -t scan-web:ci
 
       - name: Scan web image
+        if: ${{ inputs.has_containers }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
         with:
           image-ref: scan-web:ci
