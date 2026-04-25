@@ -1,0 +1,35 @@
+# TruffleHog configuration for Scorp10N repos
+
+[detector]
+  only_verified = true
+
+[scan]
+  max_depth = 0
+
+[[exclude_paths]]
+  path = ".*\\.lock$"
+
+[[exclude_paths]]
+  path = ".*vendor/.*"
+
+[[exclude_paths]]
+  path = ".*node_modules/.*"
+
+[[exclude_paths]]
+  path = ".*\\.venv/.*"
+
+[[exclude_paths]]
+  path = ".*\\.worktrees/.*"
+
+[[exclude_paths]]
+  # Snapshot fixtures may contain dummy tokens for test assertions
+  path = ".*tests/.*snapshots/.*"
+
+[[exclude_paths]]
+  path = ".*tests/.*fixtures/.*"
+
+# Add custom detectors here if project-specific secret patterns are needed:
+# [[custom_detectors.detector]]
+#   name = "ResumeForge API Key"
+#   keywords = ["rf_key_"]
+#   regex = { pattern = "rf_key_[a-zA-Z0-9]{32}", group = 0 }

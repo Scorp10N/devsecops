@@ -1,0 +1,68 @@
+# ResumeForge custom Semgrep rules — complement CodeQL with project-specific patterns
+# Docs: https://semgrep.dev/docs/writing-rules/rule-syntax/
+
+rules:
+
+  # ── CORS wildcard detection ───────────────────────────────────────────────
+  - id: resumeforge-no-wildcard-cors-list
+    pattern: |
+      CORSMiddleware(..., allow_origins=["*"], ...)
+    message: "Wildcard allow_origins=[\"*\"]. Use _parse_cors_origins() from app.py."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-942"
+
+  - id: resumeforge-no-wildcard-cors-string
+    pattern: |
+      CORSMiddleware(..., allow_origins="*", ...)
+    message: "Wildcard allow_origins=\"*\" (string form). Use explicit origin list."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-942"
+
+  # ── Bare except ────────────────────────────────────────────────────────────
+  - id: resumeforge-no-bare-except
+    pattern: |
+      try:
+        ...
+      except:
+        ...
+    message: "Bare except: swallows KeyboardInterrupt and SystemExit. Catch specific types."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: correctness
+      cwe: "CWE-390"
+
+  # ── Hardcoded secret key ───────────────────────────────────────────────────
+  - id: resumeforge-no-hardcoded-secret
+    patterns:
+      - pattern-either:
+          - pattern: SECRET_KEY = "..."
+          - pattern: secret_key = "..."
+          - pattern: RF_SECRET_KEY = "..."
+      - pattern-not: SECRET_KEY = ""
+      - pattern-not: secret_key = ""
+    message: "Hardcoded secret key. Use os.getenv() or pydantic-settings CloudSettings."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-798"
+
+  # ── Go: SQL injection via string concatenation ────────────────────────────
+  - id: resumeforge-no-sql-concat-go
+    pattern-either:
+      - pattern: $DB.Query("..." + $VAR)
+      - pattern: $DB.Exec("..." + $VAR)
+      - pattern: $DB.$METHOD(fmt.Sprintf(...), ...)
+    message: "SQL query built by string concat/Sprintf. Use parameterized queries ($1, $2...)."
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89"

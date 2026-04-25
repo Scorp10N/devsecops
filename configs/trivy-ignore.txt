@@ -1,0 +1,9 @@
+# Trivy CVE allowlist — add entries only when:
+#   (a) no upstream fix exists, AND
+#   (b) risk is accepted AND documented in the relevant repo's SECURITY.md
+#
+# Format: one CVE-ID per line; comments start with #
+# Example:
+#   CVE-2024-12345  # aiohttp 3.x — no fix as of 2026-04, tracked in resumeforge SECURITY.md T002
+#
+# Run `trivy image --list-all-pkgs <image>` to get CVE IDs for a specific image build.
