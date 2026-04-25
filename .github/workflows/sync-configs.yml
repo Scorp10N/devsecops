@@ -1,0 +1,62 @@
+name: Sync configs to consuming repos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'configs/**'
+
+jobs:
+  sync:
+    name: Open config-sync PR in ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - Scorp10N/resumeforge
+          - Scorp10N/resumeforge-cloud
+
+    steps:
+      - name: Checkout devsecops (config source)
+        uses: actions/checkout@v4
+        with:
+          path: security-source
+
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ secrets.SYNC_PAT }}
+          path: target
+
+      - name: Copy configs into target repo
+        run: |
+          mkdir -p target/.github/configs
+          cp security-source/configs/semgrep.yml         target/.github/configs/semgrep.yml
+          cp security-source/configs/trufflehog.toml     target/.github/configs/trufflehog.toml
+          cp security-source/configs/trivy-ignore.txt    target/.github/configs/trivy-ignore.txt
+          cp security-source/configs/.pre-commit-config.yaml target/.pre-commit-config.yaml
+
+      - name: Create or update sync PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.SYNC_PAT }}
+          path: target
+          commit-message: "chore(security): sync configs from devsecops@${{ github.sha }}"
+          branch: "chore/sync-security-configs"
+          delete-branch: true
+          title: "chore(security): sync configs from devsecops"
+          body: |
+            Automated sync from [`Scorp10N/devsecops`](https://github.com/Scorp10N/devsecops) at ${{ github.sha }}.
+
+            **Updated files:**
+            - `.github/configs/semgrep.yml` — custom Semgrep SAST rules
+            - `.github/configs/trufflehog.toml` — TruffleHog config
+            - `.github/configs/trivy-ignore.txt` — CVE allowlist
+            - `.pre-commit-config.yaml` — pre-commit hooks
+
+            Review the diff and merge when ready. The security workflow also downloads these at runtime, so this sync keeps local copies (used by pre-commit and editors) in sync.
+          labels: |
+            security
+            automated
