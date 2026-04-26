@@ -153,7 +153,8 @@ info "Committing findings to security-data ..."
 cd "${SECURITY_DATA_DIR}"
 git add findings/ posture/
 git diff --cached --quiet && info "No new findings to commit" || \
-  git commit -m "chore(findings): scan run ${TODAY}" && git push origin main
+  git commit -m "chore(findings): scan run ${TODAY}" && \
+  env -u GITHUB_TOKEN git push origin main
 
 info ""
 info "Scan complete. Open http://localhost:8080 to review findings."

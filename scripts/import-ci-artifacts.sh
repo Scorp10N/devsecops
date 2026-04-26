@@ -123,7 +123,8 @@ info "Committing findings to security-data ..."
 cd "${SECURITY_DATA_DIR}"
 git add findings/ posture/
 git diff --cached --quiet && info "No new findings to commit" || \
-  git commit -m "chore(findings): ci artifact import ${TODAY}" && git push origin main
+  git commit -m "chore(findings): ci artifact import ${TODAY}" && \
+  env -u GH_TOKEN git push origin main
 
 info ""
 info "Import complete. Open http://localhost:8080 to review findings."
