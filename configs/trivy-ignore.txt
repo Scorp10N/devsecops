@@ -8,4 +8,17 @@
 #
 # Run `trivy image --list-all-pkgs <image>` to get CVE IDs for a specific image build.
 
-CVE-2024-21538  # cross-spawn in node:20-alpine bundled npm — not app runtime code; fix: upgrade base image
+# node:20-alpine base image bundles npm with its own transitive deps (cross-spawn, glob, minimatch,
+# tar) that have unpatched CVEs. These packages live at /usr/local/lib/node_modules/npm/ and are
+# not part of the application's runtime. Track: upgrade base image when node:20-alpine ships a fixed npm.
+CVE-2024-21538  # cross-spawn 7.0.3 → fixed in 7.0.5
+CVE-2025-64756  # glob 10.4.2 → fixed in 10.5.0 (command injection via malicious input)
+CVE-2026-26996  # minimatch 9.0.5 → fixed in 9.0.6 (ReDoS)
+CVE-2026-27903  # minimatch 9.0.5 → fixed in 9.0.7 (ReDoS unbounded)
+CVE-2026-27904  # minimatch 9.0.5 → fixed in 9.0.7 (ReDoS catastrophic)
+CVE-2026-23745  # tar 6.2.1 → fixed in 7.5.3 (arbitrary file overwrite)
+CVE-2026-23950  # tar 6.2.1 → fixed in 7.5.4 (arbitrary file overwrite)
+CVE-2026-24842  # tar 6.2.1 → fixed in 7.5.7 (arbitrary file creation)
+CVE-2026-26960  # tar 6.2.1 → fixed in 7.5.8 (arbitrary file read/write)
+CVE-2026-29786  # tar 6.2.1 → fixed in 7.5.10 (hardlink path traversal)
+CVE-2026-31802  # tar 6.2.1 → fixed in 7.5.11 (file overwrite via drive-relative symlink)

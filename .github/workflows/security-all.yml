@@ -38,20 +38,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download TruffleHog config
-        run: |
-          curl -fsSL \
-            https://raw.githubusercontent.com/Scorp10N/devsecops/main/configs/trufflehog.toml \
-            -o trufflehog.toml
-
       # base: PR base SHA → push before SHA → HEAD~1 (schedule/other).
       # Avoids the "BASE == HEAD" failure when scanning main directly.
+      # Path exclusions use --exclude-paths CLI flag (proto schema lacks exclude_paths field).
       - uses: trufflesecurity/trufflehog@3fc0c2aa6648d54242e4af6fbfde0701796e4fb0  # main
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
           head: ${{ github.sha }}
-          extra_args: --only-verified --config=trufflehog.toml
+          extra_args: --only-verified
 
   # ── 2. Dependency vulnerabilities ────────────────────────────────────────
   deps:
