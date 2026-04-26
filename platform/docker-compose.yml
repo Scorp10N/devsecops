@@ -28,9 +28,9 @@ services:
       DD_SECRET_KEY: "local-dev-only-change-for-vps"
       DD_ADMIN_USER: "admin"
       DD_ADMIN_PASSWORD: "${DD_ADMIN_PASS}"
-      DD_ADMIN_MAIL: "scorpyarin@gmail.com"
-      DD_ADMIN_FIRST_NAME: "Yarin"
-      DD_ADMIN_LAST_NAME: "Scorp10N"
+      DD_ADMIN_MAIL: "admin@localhost"
+      DD_ADMIN_FIRST_NAME: "Admin"
+      DD_ADMIN_LAST_NAME: "User"
       DD_INITIALIZE: "true"
 
   uwsgi:

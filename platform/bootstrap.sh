@@ -81,7 +81,11 @@ REGULATION_IDS=()
 [[ -n "${ASVS_ID}"  ]] && REGULATION_IDS+=("${ASVS_ID}")
 [[ -n "${TOP10_ID}" ]] && REGULATION_IDS+=("${TOP10_ID}")
 
-REGULATIONS_PAYLOAD=$(printf '%s\n' "${REGULATION_IDS[@]:-}" | jq -Rn '[inputs | tonumber]')
+if [[ ${#REGULATION_IDS[@]} -gt 0 ]]; then
+  REGULATIONS_PAYLOAD=$(printf '%s\n' "${REGULATION_IDS[@]}" | jq -Rn '[inputs | tonumber]')
+else
+  REGULATIONS_PAYLOAD='[]'
+fi
 info "Regulations to link: ${REGULATION_IDS[*]:-none found}"
 
 # ── 5. Create a DD product for each repo in repo-map.yml ─────────────────────
