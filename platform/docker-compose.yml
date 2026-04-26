@@ -1,0 +1,83 @@
+# DefectDojo local security dashboard
+# Start: sops exec-env ../security-data/secrets.enc.yaml 'docker compose -f platform/docker-compose.yml up -d'
+# Stop:  docker compose -f platform/docker-compose.yml down
+# Logs:  docker compose -f platform/docker-compose.yml logs -f uwsgi
+
+services:
+  nginx:
+    image: defectdojo/defectdojo-nginx:latest
+    depends_on:
+      uwsgi:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      NGINX_METRICS_ENABLED: "false"
+
+  uwsgi:
+    image: defectdojo/defectdojo-django:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DD_DEBUG: "False"
+      DD_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      DD_SECRET_KEY: "local-dev-only-change-for-vps"
+      DD_DATABASE_URL: "postgresql://defectdojo:defectdojo@postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://redis:6379/0"
+      DD_ADMIN_USER: "admin"
+      DD_ADMIN_PASSWORD: "${DD_ADMIN_PASS}"
+      DD_ADMIN_MAIL: "scorpyarin@gmail.com"
+      DD_ADMIN_FIRST_NAME: "Yarin"
+      DD_ADMIN_LAST_NAME: "Scorp10N"
+      DD_INITIALIZE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v2/ -o /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  celerybeat:
+    image: defectdojo/defectdojo-django:latest
+    entrypoint: ["/entrypoint-celery-beat.sh"]
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DD_DATABASE_URL: "postgresql://defectdojo:defectdojo@postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://redis:6379/0"
+      DD_SECRET_KEY: "local-dev-only-change-for-vps"
+
+  celeryworker:
+    image: defectdojo/defectdojo-django:latest
+    entrypoint: ["/entrypoint-celery-worker.sh"]
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DD_DATABASE_URL: "postgresql://defectdojo:defectdojo@postgres:5432/defectdojo"
+      DD_CELERY_BROKER_URL: "redis://redis:6379/0"
+      DD_SECRET_KEY: "local-dev-only-change-for-vps"
+
+  redis:
+    image: redis:7-alpine
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: defectdojo
+      POSTGRES_USER: defectdojo
+      POSTGRES_PASSWORD: defectdojo
+    volumes:
+      - dd-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U defectdojo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dd-postgres-data:
