@@ -22,3 +22,11 @@ CVE-2026-24842  # tar 6.2.1 → fixed in 7.5.7 (arbitrary file creation)
 CVE-2026-26960  # tar 6.2.1 → fixed in 7.5.8 (arbitrary file read/write)
 CVE-2026-29786  # tar 6.2.1 → fixed in 7.5.10 (hardlink path traversal)
 CVE-2026-31802  # tar 6.2.1 → fixed in 7.5.11 (file overwrite via drive-relative symlink)
+
+# SvelteKit adapter-node bundles brace-expansion and diff into build/. These are transitive
+# deps of the server bundle, not direct app deps. NVD severity: MEDIUM/LOW. Trivy inflates
+# brace-expansion to HIGH via vendor CVSS. Fix: upgrade SvelteKit major versions (Dependabot
+# PRs open: vite 8, svelte 6). Accept until those are validated and merged.
+CVE-2026-33750  # brace-expansion (SvelteKit bundle) → fixed in 1.1.13/2.0.3/3.0.2/5.0.5 (ReDoS MEDIUM)
+CVE-2025-5889   # brace-expansion (SvelteKit bundle) → fixed in 1.1.12/2.0.2/3.0.1/4.0.1 (LOW)
+CVE-2026-24001  # diff (SvelteKit bundle) → fixed in 3.5.1/4.0.4/5.2.2/8.0.3 (LOW)
