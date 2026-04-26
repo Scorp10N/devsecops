@@ -27,6 +27,14 @@ on:
       has_containers:
         type: boolean
         default: true
+      has_codeql:
+        description: "Set false for private repos on free GitHub plan (no Advanced Security)"
+        type: boolean
+        default: true
+      python_dev_extra:
+        description: "PEP 621 optional-dep extra to install for pip-audit. Use 'dev' if pyproject uses [project.optional-dependencies.dev], empty string if using [tool.uv] dev-dependencies."
+        type: string
+        default: "dev"
 
 jobs:
   # ── 1. Secret scanning ────────────────────────────────────────────────────
@@ -38,15 +46,48 @@ jobs:
         with:
           fetch-depth: 0
 
-      # base: PR base SHA → push before SHA → HEAD~1 (schedule/other).
-      # Avoids the "BASE == HEAD" failure when scanning main directly.
-      # Path exclusions use --exclude-paths CLI flag (proto schema lacks exclude_paths field).
+      # Compute a safe base SHA that avoids the BASE==HEAD error.
+      # github.event.before is the zero SHA on first push, which TruffleHog
+      # cannot resolve, causing it to default to HEAD (making base==head).
+      - name: Compute scan base
+        id: base
+        run: |
+          PR_BASE="${{ github.event.pull_request.base.sha }}"
+          BEFORE="${{ github.event.before }}"
+          if [ -n "$PR_BASE" ]; then
+            echo "sha=$PR_BASE" >> $GITHUB_OUTPUT
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            echo "sha=$BEFORE" >> $GITHUB_OUTPUT
+          else
+            # Initial push — leave empty to scan all history from scratch
+            echo "sha=" >> $GITHUB_OUTPUT
+          fi
+
       - uses: trufflesecurity/trufflehog@3fc0c2aa6648d54242e4af6fbfde0701796e4fb0  # main
         with:
           path: ./
-          base: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
+          base: ${{ steps.base.outputs.sha }}
           head: ${{ github.sha }}
           extra_args: --only-verified
+
+      # Artifact: whole-repo scan → JSON for DefectDojo import.
+      - name: TruffleHog — JSON artifact
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin 2>/dev/null || true
+          trufflehog git file://. --only-verified --json 2>/dev/null \
+            | python3 -c "import sys,json; lines=[json.loads(l) for l in sys.stdin if l.strip()]; json.dump(lines, open('trufflehog.json','w'))" \
+            || echo "[]" > trufflehog.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: security-trufflehog
+          path: trufflehog.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── 2. Dependency vulnerabilities ────────────────────────────────────────
   deps:
@@ -72,22 +113,40 @@ jobs:
       - name: Python — pip-audit
         run: |
           cd engine
-          uv sync --extra dev
+          if [ -n "${{ inputs.python_dev_extra }}" ]; then
+            uv sync --extra "${{ inputs.python_dev_extra }}"
+          else
+            uv sync
+          fi
           # CVE-2026-3219: pip itself has a CVE with no upstream fix as of 2026-04
-          uv run pip-audit --ignore-vuln CVE-2026-3219
+          uv run pip-audit --ignore-vuln CVE-2026-3219 --format json > pip-audit.json
 
       - name: Go — govulncheck
         if: ${{ inputs.has_go }}
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          cd cli && govulncheck ./...
+          cd cli && govulncheck -json ./... > govulncheck.json
 
       - name: npm — audit
         if: ${{ inputs.has_node }}
-        run: cd web && npm install && npm audit --audit-level=critical
+        run: |
+          cd web
+          npm install
+          npm audit --json > npm-audit.json 2>/dev/null || true
+          npm audit --audit-level=critical
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: security-deps
+          path: |
+            engine/pip-audit.json
+            cli/govulncheck.json
+            web/npm-audit.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   # ── 3. Container scanning (Trivy) ─────────────────────────────────────────
-  # Note: job-level if cannot use inputs context — each step is individually gated.
   containers:
     name: Container scanning (Trivy)
     runs-on: ubuntu-latest
@@ -111,7 +170,8 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
         with:
           image-ref: scan-engine:ci
-          format: table
+          format: sarif
+          output: trivy-engine.sarif
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -131,18 +191,30 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master
         with:
           image-ref: scan-web:ci
-          format: table
+          format: sarif
+          output: trivy-web.sarif
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           trivyignores: .trivyignore
 
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: ${{ always() && inputs.has_containers }}
+        with:
+          name: security-trivy
+          path: |
+            trivy-engine.sarif
+            trivy-web.sarif
+          if-no-files-found: ignore
+          retention-days: 30
+
   # ── 4. Static analysis — CodeQL per language ─────────────────────────────
-  # fromJSON(inputs.*) is unsupported in strategy.matrix for workflow_call.
-  # Permissions are inherited from the caller's top-level permissions grant.
+  # CodeQL uploads SARIF to GitHub Security tab (requires Advanced Security on private repos).
+  # Set has_codeql: false for private repos on free GitHub plan.
   sast-python:
     name: Static analysis (CodeQL) / python
     runs-on: ubuntu-latest
+    if: ${{ inputs.has_codeql }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
@@ -156,34 +228,28 @@ jobs:
   sast-go:
     name: Static analysis (CodeQL) / go
     runs-on: ubuntu-latest
+    if: ${{ inputs.has_codeql && inputs.has_go }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        if: ${{ inputs.has_go }}
       - uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_go }}
         with:
           languages: go
       - uses: github/codeql-action/autobuild@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_go }}
       - uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_go }}
         with:
           category: "/language:go"
 
   sast-javascript:
     name: Static analysis (CodeQL) / javascript-typescript
     runs-on: ubuntu-latest
+    if: ${{ inputs.has_codeql && inputs.has_node }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        if: ${{ inputs.has_node }}
       - uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_node }}
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/autobuild@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_node }}
       - uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
-        if: ${{ inputs.has_node }}
         with:
           category: "/language:javascript-typescript"
 
@@ -205,5 +271,14 @@ jobs:
         uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         with:
           config: .semgrep-platform-rules.yml
+          generateSarif: "1"
         env:
           SEMGREP_APP_TOKEN: ""
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: security-semgrep
+          path: semgrep.sarif
+          if-no-files-found: ignore
+          retention-days: 30
