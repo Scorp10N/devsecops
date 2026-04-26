@@ -39,7 +39,7 @@ echo ""
 
 # ── 2. Fetch admin API token (stays in memory only) ──────────────────────────
 info "Fetching admin API token ..."
-TOKEN=$(curl -sf -X POST "${DD_URL}/api/v2/api-key-auth/" \
+TOKEN=$(curl -sf -X POST "${DD_URL}/api/v2/api-token-auth/" \
   -H "Content-Type: application/json" \
   -d "{\"username\": \"admin\", \"password\": \"${DD_ADMIN_PASS}\"}" \
   | jq -r '.token') || die "Failed to authenticate with DefectDojo admin credentials"
