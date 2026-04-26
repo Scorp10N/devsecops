@@ -38,8 +38,7 @@ info "Age public key: ${AGE_PUBLIC_KEY}"
 # ── 2. Write .sops.yaml ───────────────────────────────────────────────────────
 cat > "${SOPS_CONFIG}" << EOF
 creation_rules:
-  - path_regex: secrets\.enc\.yaml$
-    age: ${AGE_PUBLIC_KEY}
+  - age: ${AGE_PUBLIC_KEY}
 EOF
 info "Wrote ${SOPS_CONFIG}"
 
