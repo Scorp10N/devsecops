@@ -66,14 +66,14 @@ dd_posture_snapshot() {
         ),
         by_product: (
           .results
-          | group_by(.test_object.engagement.product.name // "unknown")
-          | map({(.[0].test_object.engagement.product.name // "unknown"): length})
+          | group_by(.related_fields.test.engagement.product.name // "unknown")
+          | map({(.[0].related_fields.test.engagement.product.name // "unknown"): length})
           | add // {}
         ),
         critical_findings: [
           .results[]
           | select(.severity == "Critical")
-          | {title: .title, product: .test_object.engagement.product.name, cve: .cve}
+          | {title: .title, product: .related_fields.test.engagement.product.name, cve: .cve}
         ]
       }' > "${output_file}"
 
