@@ -41,10 +41,11 @@ detect_scan_type() {
   case "${filename}" in
     *trufflehog*)                   echo "Trufflehog Scan" ;;
     *semgrep*)                      echo "Semgrep JSON Report" ;;
-    *trivy* | *.sarif)              echo "Trivy Scan" ;;
+    *.sarif)                        echo "SARIF" ;;          # Trivy Scan parser expects JSON; SARIF files use generic SARIF parser
+    *trivy*.json)                   echo "Trivy Scan" ;;
     *pip-audit* | *pip_audit*)      echo "pip-audit Scan" ;;
-    *govulncheck*)                  echo "govulncheck Scanner" ;;
-    *npm-audit* | *npm_audit*)      echo "NPM Audit Scan" ;;
+    *govulncheck*)                  echo "Govulncheck Scanner" ;;
+    *npm-audit* | *npm_audit*)      echo "ARCHIVE_ONLY" ;;   # DD doesn't support npm audit v2 format (npm 7+)
     *codeql* | *sarif*)             echo "SARIF" ;;
     *)                              echo "" ;;
   esac
@@ -102,6 +103,12 @@ for i in $(seq 0 $(( REPO_COUNT - 1 ))); do
 
     if [[ -z "${scan_type}" ]]; then
       info "  SKIP: Unknown scan type for ${filename}"
+      continue
+    fi
+
+    if [[ "${scan_type}" == "ARCHIVE_ONLY" ]]; then
+      info "  → Archiving ${filename} (DD import not supported for this format)"
+      dd_save_and_archive "${artifact_file}" "${FINDINGS_DIR}" "${REPO_SLUG}" "${filename%.*}"
       continue
     fi
 
