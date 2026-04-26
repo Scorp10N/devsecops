@@ -7,3 +7,5 @@
 #   CVE-2024-12345  # aiohttp 3.x — no fix as of 2026-04, tracked in resumeforge SECURITY.md T002
 #
 # Run `trivy image --list-all-pkgs <image>` to get CVE IDs for a specific image build.
+
+CVE-2024-21538  # cross-spawn in node:20-alpine bundled npm — not app runtime code; fix: upgrade base image
