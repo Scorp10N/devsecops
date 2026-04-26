@@ -118,8 +118,10 @@ jobs:
           else
             uv sync
           fi
+          # --with pip-audit installs it temporarily into the project venv without
+          # requiring it in dev-dependencies (works for all consuming repos)
           # CVE-2026-3219: pip itself has a CVE with no upstream fix as of 2026-04
-          uv run pip-audit --ignore-vuln CVE-2026-3219 --format json > pip-audit.json
+          uv run --with pip-audit pip-audit --ignore-vuln CVE-2026-3219 --format json > pip-audit.json
 
       - name: Go — govulncheck
         if: ${{ inputs.has_go }}

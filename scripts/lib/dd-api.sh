@@ -53,7 +53,7 @@ dd_posture_snapshot() {
   tmp_dir=$(dirname "${output_file}")
   mkdir -p "${tmp_dir}"
 
-  curl -sf "${DD_URL}/api/v2/findings/?active=true&limit=1000" \
+  curl -sf "${DD_URL}/api/v2/findings/?active=true&limit=1000&related_fields=true" \
     -H "Authorization: Token ${DEFECTDOJO_API_KEY}" \
     | jq '{
         generated_at: now | todate,
