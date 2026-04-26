@@ -26,8 +26,9 @@ DD_URL="http://localhost:8080"
 # ── 1. Wait for DefectDojo to be healthy ─────────────────────────────────────
 info "Waiting for DefectDojo at ${DD_URL} ..."
 for i in $(seq 1 40); do
-  if curl -sf "${DD_URL}/api/v2/" -o /dev/null 2>&1; then
-    info "DefectDojo is up."
+  HTTP_CODE=$(curl -s --connect-timeout 2 -o /dev/null -w "%{http_code}" "${DD_URL}/api/v2/" 2>/dev/null || echo "000")
+  if [[ "${HTTP_CODE}" != "000" ]]; then
+    info "DefectDojo is up (HTTP ${HTTP_CODE})."
     break
   fi
   [[ $i -eq 40 ]] && die "DefectDojo did not respond after 200s. Is the stack running?"

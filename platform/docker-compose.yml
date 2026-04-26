@@ -34,7 +34,7 @@ services:
       DD_ADMIN_LAST_NAME: "Scorp10N"
       DD_INITIALIZE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v2/ -o /dev/null || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost', 8081)); s.close()\" || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
