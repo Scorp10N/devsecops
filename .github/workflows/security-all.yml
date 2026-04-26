@@ -47,8 +47,8 @@ jobs:
       - uses: trufflesecurity/trufflehog@3fc0c2aa6648d54242e4af6fbfde0701796e4fb0  # main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          base: ${{ github.event.before }}
+          head: ${{ github.sha }}
           extra_args: --only-verified --config=trufflehog.toml
 
   # ── 2. Dependency vulnerabilities ────────────────────────────────────────
@@ -76,7 +76,8 @@ jobs:
         run: |
           cd engine
           uv sync --extra dev
-          uv run pip-audit
+          # CVE-2026-3219: pip itself has a CVE with no upstream fix as of 2026-04
+          uv run pip-audit --ignore-vuln CVE-2026-3219
 
       - name: Go — govulncheck
         if: ${{ inputs.has_go }}

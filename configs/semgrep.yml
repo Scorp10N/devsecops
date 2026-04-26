@@ -59,7 +59,11 @@ rules:
     pattern-either:
       - pattern: $DB.Query("..." + $VAR)
       - pattern: $DB.Exec("..." + $VAR)
-      - pattern: $DB.$METHOD(fmt.Sprintf(...), ...)
+      - pattern: $DB.Query(fmt.Sprintf($FMT, ...))
+      - pattern: $DB.Exec(fmt.Sprintf($FMT, ...))
+      - pattern: $DB.QueryRow(fmt.Sprintf($FMT, ...))
+      - pattern: $DB.QueryContext($CTX, fmt.Sprintf($FMT, ...))
+      - pattern: $DB.ExecContext($CTX, fmt.Sprintf($FMT, ...))
     message: "SQL query built by string concat/Sprintf. Use parameterized queries ($1, $2...)."
     languages: [go]
     severity: ERROR
