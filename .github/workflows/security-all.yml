@@ -294,7 +294,7 @@ jobs:
 
       - name: Upload Semgrep results to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c0ff297367dea2a  # v3.35.2
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
         with:
           sarif_file: semgrep.sarif
           category: semgrep
