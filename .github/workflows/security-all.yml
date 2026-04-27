@@ -200,6 +200,13 @@ jobs:
           ignore-unfixed: true
           trivyignores: .trivyignore
 
+      - name: Upload Trivy results to GitHub Security tab
+        if: ${{ always() && inputs.has_containers }}
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        with:
+          sarif_file: .
+          category: trivy
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: ${{ always() && inputs.has_containers }}
         with:
@@ -284,3 +291,72 @@ jobs:
           path: semgrep.sarif
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Upload Semgrep results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ── 6. Collect findings → security-data ──────────────────────────────────
+  collect:
+    name: Collect findings → security-data
+    runs-on: ubuntu-latest
+    needs: [secrets, deps, containers, sast-python, sast-go, sast-javascript, semgrep]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout devsecops (for normalization scripts)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          repository: Scorp10N/devsecops
+          path: devsecops
+
+      - name: Download scan artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} \
+            --repo ${{ github.repository }} \
+            --dir findings-raw/ 2>/dev/null || true
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Normalize findings
+        run: |
+          python3 devsecops/scripts/normalize_findings.py \
+            findings-raw/ \
+            "${{ github.repository }}" \
+            "${{ github.run_id }}"
+
+      - name: Clone security-data and update findings
+        env:
+          SECURITY_DATA_PAT: ${{ secrets.SECURITY_DATA_PAT }}
+        run: |
+          REPO_SLUG="${{ github.repository }}"
+          REPO_SLUG="${REPO_SLUG#*/}"
+          TODAY=$(date +%Y-%m-%d)
+
+          git clone \
+            https://x-access-token:${SECURITY_DATA_PAT}@github.com/Scorp10N/security-data.git \
+            sd
+
+          mkdir -p sd/findings/${REPO_SLUG}/latest
+          cp normalized/${REPO_SLUG}/normalized.json sd/findings/${REPO_SLUG}/latest/
+
+          mkdir -p sd/posture
+
+          python3 devsecops/scripts/update_posture.py sd/findings/ \
+            > sd/posture/snapshot-${TODAY}.json
+
+          cp sd/posture/snapshot-${TODAY}.json sd/posture/snapshot-latest.json
+
+          cd sd
+          git config user.email "ci@scorp10n.github"
+          git config user.name "Security Bot"
+          git add findings/ posture/
+          git diff --cached --quiet \
+            || git commit -m "findings: ${{ github.repository }} run ${{ github.run_id }}"
+          git push
