@@ -298,3 +298,63 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+
+  # ── 6. Collect findings → security-data ──────────────────────────────────
+  collect:
+    name: Collect findings → security-data
+    runs-on: ubuntu-latest
+    needs: [secrets, deps, containers, sast-python, sast-go, sast-javascript, semgrep]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout devsecops (for normalization scripts)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          repository: Scorp10N/devsecops
+          path: devsecops
+
+      - name: Download scan artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} \
+            --repo ${{ github.repository }} \
+            --dir findings-raw/ 2>/dev/null || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Normalize findings
+        run: |
+          python3 devsecops/scripts/normalize_findings.py \
+            findings-raw/ \
+            "${{ github.repository }}" \
+            "${{ github.run_id }}"
+
+      - name: Clone security-data and update findings
+        env:
+          SECURITY_DATA_PAT: ${{ secrets.SECURITY_DATA_PAT }}
+        run: |
+          REPO_SLUG="${{ github.repository }}"
+          REPO_SLUG="${REPO_SLUG#*/}"
+          TODAY=$(date +%Y-%m-%d)
+
+          git clone \
+            https://x-access-token:${SECURITY_DATA_PAT}@github.com/Scorp10N/security-data.git \
+            sd
+
+          mkdir -p sd/findings/${REPO_SLUG}/latest
+          cp normalized/${REPO_SLUG}/normalized.json sd/findings/${REPO_SLUG}/latest/
+
+          python3 devsecops/scripts/update_posture.py sd/findings/ \
+            > sd/posture/snapshot-${TODAY}.json
+
+          cp sd/posture/snapshot-${TODAY}.json sd/posture/snapshot-latest.json
+
+          cd sd
+          git config user.email "ci@scorp10n.github"
+          git config user.name "Security Bot"
+          git add findings/ posture/
+          git diff --cached --quiet \
+            || git commit -m "findings: ${{ github.repository }} run ${{ github.run_id }}"
+          git push
