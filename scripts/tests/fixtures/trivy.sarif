@@ -1,0 +1,26 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Trivy",
+          "rules": [
+            {
+              "id": "CVE-2026-33750",
+              "shortDescription": {"text": "brace-expansion ReDoS"},
+              "helpUri": "https://nvd.nist.gov/vuln/detail/CVE-2026-33750"
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2026-33750",
+          "level": "warning",
+          "message": {"text": "Package brace-expansion 2.0.1 is vulnerable"}
+        }
+      ]
+    }
+  ]
+}

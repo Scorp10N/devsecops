@@ -1,0 +1,20 @@
+{
+  "dependencies": [
+    {
+      "name": "aiohttp",
+      "version": "3.9.0",
+      "vulns": [
+        {
+          "id": "GHSA-5m98-qgg9-wh84",
+          "fix_versions": ["3.9.4"],
+          "description": "aiohttp open redirect vulnerability"
+        }
+      ]
+    },
+    {
+      "name": "requests",
+      "version": "2.31.0",
+      "vulns": []
+    }
+  ]
+}
