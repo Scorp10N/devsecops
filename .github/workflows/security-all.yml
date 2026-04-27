@@ -200,12 +200,19 @@ jobs:
           ignore-unfixed: true
           trivyignores: .trivyignore
 
-      - name: Upload Trivy results to GitHub Security tab
+      - name: Upload Trivy engine results to GitHub Security tab
         if: ${{ always() && inputs.has_containers }}
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
         with:
-          sarif_file: .
-          category: trivy
+          sarif_file: trivy-engine.sarif
+          category: trivy-engine
+
+      - name: Upload Trivy web results to GitHub Security tab
+        if: ${{ always() && inputs.has_containers }}
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        with:
+          sarif_file: trivy-web.sarif
+          category: trivy-web
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: ${{ always() && inputs.has_containers }}
