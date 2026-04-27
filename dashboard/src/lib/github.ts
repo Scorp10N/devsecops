@@ -73,9 +73,11 @@ export async function fetchPostureHistory(
     .sort()
     .slice(-30);
 
-  return Promise.all(
+  const results = await Promise.all(
     snapshots.map((name) =>
       ghFetch<PostureSnapshot>(token, `posture/${name}`)
     )
   );
+  // Filter out old DefectDojo-format snapshots that lack the `total` field
+  return results.filter((s): s is PostureSnapshot => s != null && typeof (s as any).total === 'object');
 }

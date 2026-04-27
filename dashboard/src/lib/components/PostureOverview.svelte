@@ -22,6 +22,7 @@
     if (history.length < 2) return '';
     const points = history.map((s) => {
       const t = s.total;
+      if (!t) return 0;
       return t.critical * 10 + t.high * 3 + t.medium;
     });
     const max = Math.max(...points, 1);
