@@ -137,6 +137,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
         run: |
+          gh label create "alert" --color "FF0000" --repo Scorp10N/devsecops --force 2>/dev/null || true
+          gh label create "security" --color "E4E669" --repo Scorp10N/devsecops --force 2>/dev/null || true
           MISSING=""
           [ -f missing-repos.txt ] && MISSING=$(cat missing-repos.txt | tr '\n' ', ')
           EXISTING=$(gh issue list -R Scorp10N/devsecops \
