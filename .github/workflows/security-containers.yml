@@ -71,14 +71,14 @@ jobs:
           retention-days: 30
 
       - name: Install oras
-        if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: '!cancelled() && github.ref == ''refs/heads/main'' && github.event_name == ''push'''
         run: |
           curl -sSfL https://github.com/oras-project/oras/releases/download/v1.3.2/oras_1.3.2_linux_amd64.tar.gz \
             | tar -xz oras
           sudo mv oras /usr/local/bin/oras
 
       - name: Push findings to ghcr.io
-        if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: '!cancelled() && github.ref == ''refs/heads/main'' && github.event_name == ''push'''
         env:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
@@ -96,13 +96,15 @@ jobs:
           fi
           SARIF_FILE="trivy-${SAFE_KEY}.sarif"
           if [ -f "$SARIF_FILE" ]; then
-            oras push "ghcr.io/scorp10n/findings-${SLUG}:latest" \
+            oras push "ghcr.io/scorp10n/findings-${SLUG}-${SAFE_KEY}:latest" \
               --annotation "run_id=${RUN_ID}" \
               --annotation "scan_date=${DATE}" \
               --annotation "source_repo=${CALLING_REPO}" \
-              "${SARIF_FILE}:application/sarif+json" || true
-            oras tag "ghcr.io/scorp10n/findings-${SLUG}:latest" \
-              "ghcr.io/scorp10n/findings-${SLUG}:${DATE}" || true
+              "${SARIF_FILE}:application/sarif+json" \
+              || echo "::warning::oras push failed — findings NOT stored in ghcr.io"
+            oras tag "ghcr.io/scorp10n/findings-${SLUG}-${SAFE_KEY}:latest" \
+              "ghcr.io/scorp10n/findings-${SLUG}-${SAFE_KEY}:${DATE}" \
+              || echo "::warning::oras tag failed — dated tag not created"
           fi
 
   # ── 2. Secret scanning ────────────────────────────────────────────────────
