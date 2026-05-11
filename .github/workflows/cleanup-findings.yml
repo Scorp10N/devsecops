@@ -1,0 +1,56 @@
+name: Cleanup old findings packages
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # weekly Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete OCI tags older than 90 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYEOF'
+          import subprocess, json, sys
+          from datetime import datetime, timezone, timedelta
+
+          cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+
+          result = subprocess.run(
+              ["gh", "api", "user/packages?package_type=container&per_page=100"],
+              capture_output=True, text=True, check=True
+          )
+          packages = [p for p in json.loads(result.stdout)
+                      if p["name"].startswith("findings-")]
+
+          for pkg in packages:
+              name = pkg["name"]
+              vers = subprocess.run(
+                  ["gh", "api",
+                   f"user/packages/container/{name}/versions?per_page=100"],
+                  capture_output=True, text=True, check=True
+              )
+              for v in json.loads(vers.stdout):
+                  updated = datetime.fromisoformat(
+                      v["updated_at"].replace("Z", "+00:00")
+                  )
+                  tags = v.get("metadata", {}).get("container", {}).get("tags", [])
+                  # never delete latest; only delete dated tags past cutoff
+                  if "latest" in tags:
+                      continue
+                  if updated < cutoff:
+                      vid = v["id"]
+                      r = subprocess.run(
+                          ["gh", "api", "--method", "DELETE",
+                           f"user/packages/container/{name}/versions/{vid}"],
+                          capture_output=True, text=True
+                      )
+                      status = "deleted" if r.returncode == 0 else f"FAILED ({r.stderr.strip()})"
+                      print(f"{name}:{tags} updated={updated.date()} → {status}")
+          PYEOF
