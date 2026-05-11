@@ -1,0 +1,63 @@
+name: Bootstrap repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Full repo name e.g. Scorp10N/my-repo"
+        required: true
+        type: string
+      type:
+        description: "Preset type (container, service, library, platform)"
+        required: true
+        type: string
+      lifecycle:
+        description: "Lifecycle stage (experimental, production)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run — report changes without writing"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap ${{ inputs.repo }} (${{ inputs.type }}-${{ inputs.lifecycle }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run bootstrap applier (live)
+        if: inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          BOOTSTRAP_REPO: ${{ inputs.repo }}
+          BOOTSTRAP_TYPE: ${{ inputs.type }}
+          BOOTSTRAP_LIFECYCLE: ${{ inputs.lifecycle }}
+        run: |
+          python3 scripts/bootstrap_repo.py \
+            --repo "$BOOTSTRAP_REPO" \
+            --type "$BOOTSTRAP_TYPE" \
+            --lifecycle "$BOOTSTRAP_LIFECYCLE"
+
+      - name: Run bootstrap applier (dry run)
+        if: inputs.dry_run == true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          BOOTSTRAP_REPO: ${{ inputs.repo }}
+          BOOTSTRAP_TYPE: ${{ inputs.type }}
+          BOOTSTRAP_LIFECYCLE: ${{ inputs.lifecycle }}
+        run: |
+          python3 scripts/bootstrap_repo.py \
+            --repo "$BOOTSTRAP_REPO" \
+            --type "$BOOTSTRAP_TYPE" \
+            --lifecycle "$BOOTSTRAP_LIFECYCLE" \
+            --dry-run --output json
