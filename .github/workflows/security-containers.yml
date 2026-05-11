@@ -1,0 +1,170 @@
+name: Security (containers)
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: 'JSON array of image references, e.g. ["nginx:alpine","tailscale/tailscale:latest"]'
+        type: string
+        required: true
+      repo_name:
+        description: 'Slug used for findings folder in security-data (defaults to calling repo)'
+        type: string
+        default: ""
+
+jobs:
+  # ── 1. Container image scanning ──────────────────────────────────────────
+  trivy:
+    name: Trivy — ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(inputs.images) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Sanitize image name for artifact key
+        id: key
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          SAFE=$(echo "$IMAGE" | tr '/.:@' '----')
+          echo "safe=$SAFE" >> $GITHUB_OUTPUT
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.30.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: sarif
+          output: trivy-${{ steps.key.outputs.safe }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3.35.2
+        if: always()
+        with:
+          sarif_file: trivy-${{ steps.key.outputs.safe }}.sarif
+          category: trivy-${{ steps.key.outputs.safe }}
+
+      - name: Upload artifact for collect job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: security-trivy-${{ steps.key.outputs.safe }}
+          path: trivy-${{ steps.key.outputs.safe }}.sarif
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ── 2. Secret scanning ────────────────────────────────────────────────────
+  trufflehog:
+    name: TruffleHog secrets scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute scan base
+        id: base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            echo "sha=$PR_BASE" >> $GITHUB_OUTPUT
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            echo "sha=$BEFORE" >> $GITHUB_OUTPUT
+          else
+            echo "sha=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: TruffleHog scan
+        uses: trufflesecurity/trufflehog@b4c8a1b4a23876e6b756117db86e3c79e2659e09  # v3.88.23
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          head: HEAD
+          extra_args: --only-verified --json
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: security-trufflehog
+          path: trufflehog.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ── 3. Collect → security-data ───────────────────────────────────────────
+  collect:
+    name: Collect findings → security-data
+    runs-on: ubuntu-latest
+    needs: [trivy, trufflehog]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout devsecops (for normalization scripts)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          repository: Scorp10N/devsecops
+          path: devsecops
+
+      - name: Download scan artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          CALLING_REPO: ${{ github.repository }}
+        run: |
+          gh run download "$RUN_ID" \
+            --repo "$CALLING_REPO" \
+            --dir findings-raw/ 2>/dev/null || true
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Normalize findings
+        env:
+          CALLING_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 devsecops/scripts/normalize_findings.py \
+            findings-raw/ \
+            "$CALLING_REPO" \
+            "$RUN_ID"
+
+      - name: Push findings to security-data
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CALLING_REPO: ${{ github.repository }}
+          INPUT_REPO_NAME: ${{ inputs.repo_name }}
+        run: |
+          if [ -n "$INPUT_REPO_NAME" ]; then
+            REPO_SLUG="$INPUT_REPO_NAME"
+          else
+            REPO_SLUG="${CALLING_REPO#*/}"
+          fi
+          TODAY=$(date +%Y-%m-%d)
+
+          git clone \
+            https://x-access-token:${GH_PAT}@github.com/Scorp10N/security-data.git sd
+
+          mkdir -p "sd/findings/${REPO_SLUG}/latest"
+          cp "normalized/${REPO_SLUG}/normalized.json" "sd/findings/${REPO_SLUG}/latest/" 2>/dev/null || true
+
+          for sarif in findings-raw/security-trivy-*/*.sarif; do
+            [ -f "$sarif" ] && cp "$sarif" "sd/findings/${REPO_SLUG}/latest/"
+          done
+
+          mkdir -p sd/posture
+          python3 devsecops/scripts/update_posture.py sd/findings/ \
+            > "sd/posture/snapshot-${TODAY}.json"
+          cp "sd/posture/snapshot-${TODAY}.json" sd/posture/snapshot-latest.json
+
+          cd sd
+          git config user.email "ci@scorp10n.github"
+          git config user.name "Security Bot"
+          git add findings/ posture/
+          git diff --cached --quiet \
+            || git commit -m "findings: ${CALLING_REPO} run ${RUN_ID}"
+          git push
