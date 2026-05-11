@@ -17,6 +17,8 @@ jobs:
   trivy:
     name: Trivy — ${{ matrix.image }}
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +83,7 @@ jobs:
           fi
 
       - name: TruffleHog scan
-        uses: trufflesecurity/trufflehog@b4c8a1b4a23876e6b756117db86e3c79e2659e09  # v3.88.23
+        uses: trufflesecurity/trufflehog@17456f8c7d042d8c82c9a8ca9e937231f9f42e26  # v3.95.2
         with:
           base: ${{ steps.base.outputs.sha }}
           head: HEAD
