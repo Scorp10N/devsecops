@@ -1,0 +1,14 @@
+preset: container-production
+extends: container-experimental
+
+workflows:
+  - template: update-image-pins.yml
+    name: pin-images-auto
+    cron: "0 9 * * 1"
+
+image_pinning: auto
+branch_protection:
+  required_status_checks:
+    - security
+  required_approvals: 1
+  dismiss_stale_reviews: true

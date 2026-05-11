@@ -1,0 +1,34 @@
+preset: container-experimental
+extends: null
+
+workflows:
+  - template: security-containers.yml
+    name: security
+    cron: "0 6 * * 1"
+  - template: check-key-expiry.yml
+    name: check-key-expiry
+    cron: "0 8 * * 1"
+
+makefile_targets:
+  - start
+  - stop
+  - logs
+  - status
+  - scan
+  - pin-images
+  - sync-resume
+
+secrets:
+  - name: GH_PAT
+    devkeys_key: GH_PAT
+    required: true
+  - name: TS_API_TOKEN
+    devkeys_key: TS_API_TOKEN
+    required: false
+
+registries:
+  - repo-audit
+  - security-data
+
+image_pinning: manual
+branch_protection: false
