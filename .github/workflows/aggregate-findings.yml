@@ -1,0 +1,152 @@
+name: Aggregate findings from ghcr.io
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          repository: Scorp10N/devsecops
+
+      - name: Install oras
+        run: |
+          curl -sSfL https://github.com/oras-project/oras/releases/download/v1.3.2/oras_1.3.2_linux_amd64.tar.gz \
+            | tar -xz oras
+          sudo mv oras /usr/local/bin/oras
+
+      - name: Clone security-data
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          git clone "https://x-access-token:${SYNC_PAT}@github.com/Scorp10N/security-data.git" sd
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml --quiet
+
+      - name: Pull findings from ghcr.io and normalize
+        env:
+          PACKAGES_READ_PAT: ${{ secrets.PACKAGES_READ_PAT }}
+          GH_TOKEN: ${{ secrets.PACKAGES_READ_PAT }}
+        run: |
+          echo "$PACKAGES_READ_PAT" | oras login ghcr.io -u scorp10n --password-stdin
+          python3 - <<'PYEOF'
+          import subprocess, yaml, json, os, sys
+          from pathlib import Path
+
+          repos = yaml.safe_load(open("sd/repo-map.yml"))["repos"]
+          missing = []
+
+          # List all ghcr.io packages to find per-image findings packages
+          pkg_result = subprocess.run(
+              ["gh", "api", "user/packages?package_type=container&per_page=100"],
+              capture_output=True, text=True
+          )
+          all_packages = json.loads(pkg_result.stdout) if pkg_result.returncode == 0 else []
+          findings_packages = {p["name"] for p in all_packages if p["name"].startswith("findings-")}
+
+          for r in repos:
+              slug = r["name"].split("/")[-1]
+              # find all per-image packages for this slug
+              repo_packages = [n for n in findings_packages if n.startswith(f"findings-{slug}-") or n == f"findings-{slug}"]
+
+              if not repo_packages:
+                  print(f"WARN: no findings packages found for {slug}")
+                  missing.append(slug)
+                  continue
+
+              dest = Path(f"findings-raw/{slug}")
+              dest.mkdir(parents=True, exist_ok=True)
+              any_pulled = False
+
+              for pkg_name in repo_packages:
+                  result = subprocess.run(
+                      ["oras", "pull", f"ghcr.io/scorp10n/{pkg_name}:latest",
+                       "--output", str(dest)],
+                      capture_output=True, text=True
+                  )
+                  if result.returncode != 0:
+                      print(f"WARN: could not pull {pkg_name}: {result.stderr.strip()}")
+                  else:
+                      any_pulled = True
+
+              if any_pulled:
+                  norm = subprocess.run(
+                      ["python3", "scripts/normalize_findings.py",
+                       str(dest), r["name"], "aggregated"],
+                      capture_output=True, text=True
+                  )
+                  if norm.returncode != 0:
+                      print(f"WARN: normalize failed for {slug}: {norm.stderr.strip()}")
+                      missing.append(slug)
+                  else:
+                      print(f"OK: {slug}")
+              else:
+                  missing.append(slug)
+
+          if missing:
+              print(f"::warning::Failed to pull or normalize: {', '.join(missing)}", flush=True)
+              Path("missing-repos.txt").write_text("\n".join(missing))
+          PYEOF
+
+      - name: Update posture snapshot
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          mkdir -p sd/posture
+          for slug_dir in findings-raw/*/; do
+            slug=$(basename "$slug_dir")
+            mkdir -p "sd/findings/${slug}/latest" "sd/findings/${slug}/history/${TODAY}"
+            cp "normalized/${slug}/normalized.json" "sd/findings/${slug}/latest/" 2>/dev/null || true
+            cp "normalized/${slug}/normalized.json" "sd/findings/${slug}/history/${TODAY}/" 2>/dev/null || true
+            for sarif in "${slug_dir}"*.sarif; do
+              [ -f "$sarif" ] && cp "$sarif" "sd/findings/${slug}/latest/"
+            done
+          done
+          python3 scripts/update_posture.py sd/findings/ > "sd/posture/snapshot-${TODAY}.json"
+          cp "sd/posture/snapshot-${TODAY}.json" sd/posture/snapshot-latest.json
+
+      - name: Push to security-data
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          cd sd
+          git config user.email "ci@scorp10n.github"
+          git config user.name "Security Bot"
+          git add findings/ posture/
+          git diff --cached --quiet \
+            || git commit -m "findings: aggregated $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Alert on partial failure
+        if: failure() || (success() && hashFiles('missing-repos.txt') != '')
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          MISSING=""
+          [ -f missing-repos.txt ] && MISSING=$(cat missing-repos.txt | tr '\n' ', ')
+          EXISTING=$(gh issue list -R Scorp10N/devsecops \
+            --label alert --state open --json title \
+            | python3 -c "import sys,json; titles=[i['title'] for i in json.load(sys.stdin)]; print(any('aggregation' in t for t in titles))")
+          if [ "$EXISTING" = "False" ]; then
+            gh issue create \
+              --repo Scorp10N/devsecops \
+              --title "Findings aggregation failed $(date -u +%Y-%m-%d)" \
+              --body "Aggregator workflow run ${RUN_ID} had failures.
+          Missing repos: ${MISSING}
+          OCI tags auto-delete after 90 days — re-run before data loss window.
+          See run logs: https://github.com/Scorp10N/devsecops/actions/runs/${RUN_ID}" \
+              --label "alert,security"
+          fi
