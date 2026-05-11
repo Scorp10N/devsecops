@@ -8,7 +8,11 @@ on:
         type: string
         required: true
       repo_name:
-        description: 'Slug used for findings folder in security-data (defaults to calling repo)'
+        description: 'Slug used for findings package name in ghcr.io (defaults to calling repo slug)'
+        type: string
+        default: ""
+      registry_auth:
+        description: "'github' to login to ghcr.io with GITHUB_TOKEN before scanning private images"
         type: string
         default: ""
 
@@ -19,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +36,14 @@ jobs:
         run: |
           SAFE=$(echo "$IMAGE" | tr '/.:@' '----')
           echo "safe=$SAFE" >> $GITHUB_OUTPUT
+
+      - name: Login to ghcr.io (private images)
+        if: inputs.registry_auth == 'github'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - name: Scan image
         uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.30.0
@@ -48,7 +61,7 @@ jobs:
           sarif_file: trivy-${{ steps.key.outputs.safe }}.sarif
           category: trivy-${{ steps.key.outputs.safe }}
 
-      - name: Upload artifact for collect job
+      - name: Upload artifact for local retention
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
@@ -56,6 +69,41 @@ jobs:
           path: trivy-${{ steps.key.outputs.safe }}.sarif
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Install oras
+        if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          curl -sSfL https://github.com/oras-project/oras/releases/download/v1.3.2/oras_1.3.2_linux_amd64.tar.gz \
+            | tar -xz oras
+          sudo mv oras /usr/local/bin/oras
+
+      - name: Push findings to ghcr.io
+        if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          CALLING_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          INPUT_REPO_NAME: ${{ inputs.repo_name }}
+          SAFE_KEY: ${{ steps.key.outputs.safe }}
+        run: |
+          echo "$GH_TOKEN" | oras login ghcr.io -u "$ACTOR" --password-stdin
+          DATE=$(date -u +%Y-%m-%d)
+          if [ -n "$INPUT_REPO_NAME" ]; then
+            SLUG="$INPUT_REPO_NAME"
+          else
+            SLUG="${CALLING_REPO#*/}"
+          fi
+          SARIF_FILE="trivy-${SAFE_KEY}.sarif"
+          if [ -f "$SARIF_FILE" ]; then
+            oras push "ghcr.io/scorp10n/findings-${SLUG}:latest" \
+              --annotation "run_id=${RUN_ID}" \
+              --annotation "scan_date=${DATE}" \
+              --annotation "source_repo=${CALLING_REPO}" \
+              "${SARIF_FILE}:application/sarif+json" || true
+            oras tag "ghcr.io/scorp10n/findings-${SLUG}:latest" \
+              "ghcr.io/scorp10n/findings-${SLUG}:${DATE}" || true
+          fi
 
   # ── 2. Secret scanning ────────────────────────────────────────────────────
   trufflehog:
@@ -95,76 +143,3 @@ jobs:
           path: trufflehog.json
           if-no-files-found: ignore
           retention-days: 30
-
-  # ── 3. Collect → security-data ───────────────────────────────────────────
-  collect:
-    name: Collect findings → security-data
-    runs-on: ubuntu-latest
-    needs: [trivy, trufflehog]
-    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout devsecops (for normalization scripts)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          repository: Scorp10N/devsecops
-          path: devsecops
-
-      - name: Download scan artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.run_id }}
-          CALLING_REPO: ${{ github.repository }}
-        run: |
-          gh run download "$RUN_ID" \
-            --repo "$CALLING_REPO" \
-            --dir findings-raw/ 2>/dev/null || true
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.12"
-
-      - name: Normalize findings
-        env:
-          CALLING_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          python3 devsecops/scripts/normalize_findings.py \
-            findings-raw/ \
-            "$CALLING_REPO" \
-            "$RUN_ID"
-
-      - name: Push findings to security-data
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          CALLING_REPO: ${{ github.repository }}
-          INPUT_REPO_NAME: ${{ inputs.repo_name }}
-        run: |
-          if [ -n "$INPUT_REPO_NAME" ]; then
-            REPO_SLUG="$INPUT_REPO_NAME"
-          else
-            REPO_SLUG="${CALLING_REPO#*/}"
-          fi
-          TODAY=$(date +%Y-%m-%d)
-
-          git clone \
-            https://x-access-token:${GH_PAT}@github.com/Scorp10N/security-data.git sd
-
-          mkdir -p "sd/findings/${REPO_SLUG}/latest"
-          cp "normalized/${REPO_SLUG}/normalized.json" "sd/findings/${REPO_SLUG}/latest/" 2>/dev/null || true
-
-          for sarif in findings-raw/security-trivy-*/*.sarif; do
-            [ -f "$sarif" ] && cp "$sarif" "sd/findings/${REPO_SLUG}/latest/"
-          done
-
-          mkdir -p sd/posture
-          python3 devsecops/scripts/update_posture.py sd/findings/ \
-            > "sd/posture/snapshot-${TODAY}.json"
-          cp "sd/posture/snapshot-${TODAY}.json" sd/posture/snapshot-latest.json
-
-          cd sd
-          git config user.email "ci@scorp10n.github"
-          git config user.name "Security Bot"
-          git add findings/ posture/
-          git diff --cached --quiet \
-            || git commit -m "findings: ${CALLING_REPO} run ${RUN_ID}"
-          git push
