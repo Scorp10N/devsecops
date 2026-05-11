@@ -19,9 +19,6 @@ makefile_targets:
   - sync-resume
 
 secrets:
-  - name: GH_PAT
-    devkeys_key: GH_PAT
-    required: true
   - name: TS_API_TOKEN
     devkeys_key: TS_API_TOKEN
     required: false

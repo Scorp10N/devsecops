@@ -255,7 +255,7 @@ def apply(repo: str, preset: dict, repo_dir: Path, dry_run: bool) -> list:
     # 3. Write .devkeys.yml (namespace declaration)
     devkeys_path = repo_dir / ".devkeys.yml"
     repo_slug = repo.split("/")[-1]
-    devkeys_content = f"namespace: {repo_slug}\nshared_access:\n  - GH_PAT\n"
+    devkeys_content = f"namespace: {repo_slug}\nshared_access: []\n"
     if not devkeys_path.exists():
         if not dry_run:
             devkeys_path.write_text(devkeys_content)
