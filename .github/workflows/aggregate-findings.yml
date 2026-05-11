@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   packages: read
+  issues: write
 
 jobs:
   aggregate:
@@ -83,9 +84,10 @@ jobs:
                       any_pulled = True
 
               if any_pulled:
+                  run_id = os.environ.get("GITHUB_RUN_ID", "0")
                   norm = subprocess.run(
                       ["python3", "scripts/normalize_findings.py",
-                       str(dest), r["name"], "aggregated"],
+                       str(dest), r["name"], run_id],
                       capture_output=True, text=True
                   )
                   if norm.returncode != 0:
@@ -132,7 +134,7 @@ jobs:
       - name: Alert on partial failure
         if: failure() || (success() && hashFiles('missing-repos.txt') != '')
         env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
         run: |
           MISSING=""
