@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'configs/**'
+  workflow_dispatch:
 
 jobs:
   sync:
